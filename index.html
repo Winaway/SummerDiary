@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>暑假日记抽卡机</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="data.js" defer></script>
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="top-bar">
+        <button class="brand-button" type="button" data-nav="home">
+          <span class="brand-mark">日</span>
+          <span>暑假日记抽卡机</span>
+        </button>
+        <nav class="top-nav" aria-label="页面导航">
+          <button type="button" data-nav="home">首页</button>
+          <button type="button" data-nav="today">今日卡片</button>
+          <button type="button" data-nav="collection">收集册</button>
+          <button type="button" data-nav="settings">设置</button>
+        </nav>
+      </header>
+
+      <main id="app" class="app-view" tabindex="-1"></main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
