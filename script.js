@@ -34,6 +34,7 @@
     const action = actionButton.dataset.action;
     if (action === "drawToday") drawTodayCard();
     if (action === "changeToday") changeTodayCard();
+    if (action === "chooseTopic") chooseTodayTopic(Number(actionButton.dataset.topicIndex));
     if (action === "completeToday") completeTodayCard();
     if (action === "fillDay") fillPastDay(Number(actionButton.dataset.day));
     if (action === "exportCollection") exportCollectionImage();
@@ -104,8 +105,12 @@
       throw new Error(`Day ${day} 的题目编号不正确：${record.topicIndex}`);
     }
 
-    if ((templateId === null) !== (topicIndex === null)) {
-      throw new Error(`Day ${day} 的模板和题目不匹配：${JSON.stringify(record)}`);
+    if (templateId === null && topicIndex !== null) {
+      throw new Error(`Day ${day} 只有题目没有模板：${JSON.stringify(record)}`);
+    }
+
+    if (record.completed && templateId !== null && topicIndex === null) {
+      throw new Error(`Day ${day} 已点亮但还没有选题：${JSON.stringify(record)}`);
     }
 
     return {
@@ -261,15 +266,16 @@
     }
 
     const template = record.templateId ? templateById.get(record.templateId) : null;
-    const topic = template ? template.topics[record.topicIndex] : "这一天是后来补点亮的，没有保存小题目。";
+    const hasChosenTopic = Boolean(template && record.topicIndex !== null);
+    const topic = hasChosenTopic ? template.topics[record.topicIndex] : "这一天是后来补点亮的，没有保存小题目。";
     const cardStyle = template ? `--template-color: ${template.color}; --template-bg: ${template.background};` : "";
 
     return `
       <div class="page-heading">
         <div>
           <p class="kicker">Day ${currentDay}</p>
-          <h1>今天写这个</h1>
-          <p class="support">写 5 句话就可以，多写也可以。</p>
+          <h1>${hasChosenTopic || !template ? "今天写这个" : "先选一个小题目"}</h1>
+          <p class="support">${hasChosenTopic || !template ? "写 5 句话就可以，多写也可以。" : "从这张模板卡的 7 个题目里，选一个今天最想写的。"}</p>
         </div>
         ${record.completed ? '<span class="status-pill">今天的小卡片已点亮</span>' : ""}
       </div>
@@ -288,19 +294,29 @@
               `
               : ""
           }
-          <p class="task-label">今天写这个：</p>
-          <div class="topic">${escapeHtml(topic)}</div>
-          <p class="goal-line">写 5 句话就可以，多写也可以。</p>
+          ${
+            hasChosenTopic || !template
+              ? `
+                <p class="task-label">今天写这个：</p>
+                <div class="topic">${escapeHtml(topic)}</div>
+              `
+              : `
+                <p class="task-label">从 7 个小题目里选一个：</p>
+                <p class="topic-intro">不用选“最好写”的，选一个今天有话想说的就行。</p>
+              `
+          }
+          ${template ? renderTopicChoices(template, record.topicIndex, record.completed) : ""}
+          <p class="goal-line">${hasChosenTopic || !template ? "写 5 句话就可以，多写也可以。" : "选好以后，写 5 句话就可以。"}</p>
           <p class="soft-line">写之前，可以先对自己说一遍，再写下来。</p>
           ${template ? renderTemplateHints(template) : ""}
         </article>
         <aside>
           <div class="panel">
             <h3>写完以后</h3>
-            <p>回到这里，点亮今天的小卡片。正文还是写在纸质日记本里。</p>
+            <p>${hasChosenTopic || !template ? "回到这里，点亮今天的小卡片。正文还是写在纸质日记本里。" : "先选一个小题目，再去纸质日记本里写。"}</p>
             <div class="button-row">
-              <button class="button primary" type="button" data-action="completeToday" ${record.completed ? "disabled" : ""}>
-                ${record.completed ? "太棒了，已经点亮" : "我写完了"}
+              <button class="button primary" type="button" data-action="completeToday" ${record.completed || (template && !hasChosenTopic) ? "disabled" : ""}>
+                ${record.completed ? "太棒了，已经点亮" : hasChosenTopic || !template ? "我写完了" : "先选一个题目"}
               </button>
             </div>
           </div>
@@ -313,6 +329,31 @@
           </div>
         </aside>
       </section>
+    `;
+  }
+
+  function renderTopicChoices(template, selectedTopicIndex, disabled) {
+    return `
+      <div class="topic-choice-block" aria-label="${escapeHtml(template.name)}的 7 个小题目">
+        ${template.topics
+          .map((topic, index) => {
+            const isSelected = selectedTopicIndex === index;
+            return `
+              <button
+                class="topic-choice ${isSelected ? "is-selected" : ""}"
+                type="button"
+                data-action="chooseTopic"
+                data-topic-index="${index}"
+                ${disabled ? "disabled" : ""}
+                aria-pressed="${isSelected}"
+              >
+                <span>${index + 1}</span>
+                <strong>${escapeHtml(topic)}</strong>
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
     `;
   }
 
@@ -396,7 +437,7 @@
     const isReachable = day <= getReachedDay();
     const isComplete = Boolean(record && record.completed);
     const template = record && record.templateId ? templateById.get(record.templateId) : null;
-    const topic = template ? template.topics[record.topicIndex] : "";
+    const topic = template && record.topicIndex !== null ? template.topics[record.topicIndex] : "";
     const stateClass = isComplete ? "is-complete" : isReachable ? "is-waiting" : "is-future";
     const disabled = !isReachable || isComplete ? "disabled" : "";
     const style = template ? `--template-bg: ${template.background};` : "";
@@ -531,11 +572,39 @@
     showToast("已经换成新的小卡片。");
   }
 
+  function chooseTodayTopic(topicIndex) {
+    const currentDay = getCurrentDay();
+    const record = currentDay ? getRecord(currentDay) : null;
+    if (!record) {
+      throw new Error(`今天没有可选题的模板卡：Day ${currentDay}`);
+    }
+    if (!record.templateId) {
+      throw new Error(`今天的记录没有模板卡，不能选题：Day ${currentDay}`);
+    }
+    if (!Number.isInteger(topicIndex) || topicIndex < 0 || topicIndex > 6) {
+      throw new Error(`题目编号不正确：${topicIndex}`);
+    }
+    if (record.completed) {
+      showToast("今天的小卡片已经点亮啦。");
+      return;
+    }
+
+    record.topicIndex = topicIndex;
+    setRecord(currentDay, record);
+    saveState();
+    render();
+    showToast("好，就写这个小题目。");
+  }
+
   function completeTodayCard() {
     const currentDay = getCurrentDay();
     const record = currentDay ? getRecord(currentDay) : null;
     if (!record) {
       throw new Error(`今天没有可点亮的卡片：Day ${currentDay}`);
+    }
+    if (record.templateId && record.topicIndex === null) {
+      showToast("先选一个小题目，再点亮今天的小卡片。");
+      return;
     }
     record.completed = true;
     record.manualCompleted = false;
@@ -572,6 +641,10 @@
       completed: false,
       manualCompleted: true
     };
+    if (nextRecord.templateId && nextRecord.topicIndex === null) {
+      nextRecord.templateId = null;
+      nextRecord.changed = false;
+    }
     nextRecord.completed = true;
     nextRecord.manualCompleted = !nextRecord.templateId;
     setRecord(day, nextRecord);
@@ -638,34 +711,27 @@
   }
 
   function createDrawnRecord(day, previousRecord) {
-    const draw = drawTemplateAndTopic(previousRecord);
+    const templateId = drawTemplateCard(previousRecord);
     return {
       date: getDateStringForDay(day),
-      templateId: draw.templateId,
-      topicIndex: draw.topicIndex,
+      templateId,
+      topicIndex: null,
       changed: Boolean(previousRecord),
       completed: false,
       manualCompleted: false
     };
   }
 
-  function drawTemplateAndTopic(previousRecord) {
+  function drawTemplateCard(previousRecord) {
     let template = null;
-    let topicIndex = null;
     let attempts = 0;
 
     do {
       template = templates[randomInteger(templates.length)];
-      topicIndex = randomInteger(template.topics.length);
       attempts += 1;
-    } while (
-      previousRecord &&
-      attempts < 20 &&
-      previousRecord.templateId === template.id &&
-      previousRecord.topicIndex === topicIndex
-    );
+    } while (previousRecord && attempts < 20 && previousRecord.templateId === template.id);
 
-    return { templateId: template.id, topicIndex };
+    return template.id;
   }
 
   function randomInteger(max) {
@@ -679,7 +745,7 @@
     if (record.changed) {
       return "今天已经换过一次啦。";
     }
-    return "如果今天这个题目不太想写，可以换一次。";
+    return "如果今天这张模板卡不太想写，可以换一次。";
   }
 
   function getCurrentDay() {
@@ -891,7 +957,7 @@
       context.font = '700 34px "Microsoft YaHei", sans-serif';
       context.fillText(template ? template.shortName : "已点亮", x + 18, y + 88);
 
-      if (template) {
+      if (template && record.topicIndex !== null) {
         context.fillStyle = "#5f5965";
         context.font = '400 21px "Microsoft YaHei", sans-serif';
         drawWrappedText(context, template.topics[record.topicIndex], x + 18, y + 122, width - 36, 28, 2);
